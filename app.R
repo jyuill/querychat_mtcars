@@ -15,6 +15,9 @@ library(querychat) # install if needed: pak::pak("posit-dev/querychat/pkg-r")
 library(ellmer)
 library(tidyverse)
 library(DT)
+library(plotly)
+
+barcolor <- "#0072B2"
 
 # get the data by modifying mtcars
 # move car names from row namse to their own column and place it first
@@ -33,25 +36,30 @@ mtcars_mod$car <- as.factor(mtcars_mod$car)
 #    - greeting message
 #    - system prompt ('extra instructions')
 #    - model (uses system from ellmer -> incl below)
-#      - may need API key in .Renviron
+#      - usu. need API key in .Renviron
+#      - setting max_tokens to limit response length 
+#         - need to have leeway for long enough answers but don't want to 
+#           inadvertently run up costs (even though cheap model)
 #    - API key if needed
 #    - data description
 querychat_config <- querychat_init(mtcars_mod,
   greeting = readLines("greeting.md"),
   data_description = readLines("data_description.md"),
   create_chat_func = purrr::partial(ellmer::chat_anthropic, 
-    model = "claude-3-5-haiku-20241022"))
+    model = "claude-3-5-haiku-20241022", params=(list(max_tokens=500))))
 
 ui <- page_sidebar(
+  titlePanel("Gen AI: using querychat for natural language queries of a dataset"),
+  h4("Use panel at left to sort, filter, ask questions about the data."),
   # 2. Use querychat_sidebar(id) in a bslib::page_sidebar.
   #    Alternatively, use querychat_ui(id) elsewhere if you don't want your
   #    chat interface to live in a sidebar.
   sidebar = querychat_sidebar("chat"),
   # show three plots beside each other in one row 
   fluidRow(
-    column(4, plotOutput("plot_mpg")),
-    column(4, plotOutput("plot_mpg_hist")),
-    column(4, plotOutput("plot_mpg_qsec"))
+    column(5, plotOutput("plot_mpg", height="650px")),
+    column(3, plotOutput("plot_mpg_hist", height="650px")),
+    column(4, plotlyOutput("plot_mpg_qsec", height="650px"))
   ),
   DT::DTOutput("dt")
 )
@@ -65,7 +73,8 @@ server <- function(input, output, session) {
     # 4. Use the filtered/sorted data frame anywhere you wish, via the
     #    querychat$df() reactive.
     ggplot(querychat$df(), aes(x = reorder(car, mpg), y = mpg)) +
-      geom_col()+coord_flip()+theme_minimal()+
+      geom_col(fill=barcolor)+coord_flip()+theme_minimal()+
+      theme(axis.text.y = element_text(size=12)) +
       labs(x="", y="MPG")
   })
 
@@ -73,16 +82,18 @@ server <- function(input, output, session) {
     # 4. Use the filtered/sorted data frame anywhere you wish, via the
     #    querychat$df() reactive.
     ggplot(querychat$df(), aes(x = mpg)) +
-      geom_histogram()+theme_minimal()+
+      geom_histogram(fill=barcolor)+theme_minimal()+
       labs(y="", x="MPG distribution")
   })
 
-  output$plot_mpg_qsec <- renderPlot({
+  output$plot_mpg_qsec <- renderPlotly({
     # 4. Use the filtered/sorted data frame anywhere you wish, via the
     #    querychat$df() reactive.
-    ggplot(querychat$df(), aes(x=mpg, y = qsec, color=car)) +
-      geom_point()+theme_minimal()+
+    p <- ggplot(querychat$df(), aes(x=mpg, y = qsec, color=car)) +
+      geom_point(size=2)+theme_minimal()+
+      theme(legend.text = element_text(size=10)) +
       labs(x="MPG", y="1/4 mile time (secs)")
+    ggplotly(p)
   })
 
   output$dt <- DT::renderDT({
